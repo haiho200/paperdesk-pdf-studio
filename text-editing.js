@@ -1,3 +1,4 @@
+import { groupTextLines } from './text-lines.js';
 import { canvasFont, detectFont } from './text-font.js';
 export function setupTextEditing(api) {
   const $ = id => document.getElementById(id);
@@ -13,7 +14,7 @@ export function setupTextEditing(api) {
     if(m.type==='image')return {w:m.w,h:m.h};
     const {view}=current(),c=document.createElement('canvas').getContext('2d');
     c.font=canvasFont(m,m.size*view.width);
-    return {w:Math.max(12,...m.text.split('\n').map(l=>c.measureText(l).width))/view.width,h:m.text.split('\n').length*m.size*view.width*1.2/view.height};
+    return {w:Math.min(m.lineWidth||Infinity,Math.max(12,...m.text.split('\n').map(l=>c.measureText(l).width))/view.width),h:m.text.split('\n').length*m.size*view.width*1.2/view.height};
   }
   function panel() {
     const m=activeMark();$('textSelection').hidden=!m;
@@ -90,12 +91,12 @@ export function setupTextEditing(api) {
   }
   function editMark(m){if(m.type==='image'){const p=document.querySelector('.page-actions');p.hidden=false;$('toggleInspector').setAttribute('aria-expanded','true');api.changed().then(()=>$('selectedImageWidth').focus());return}openEditor(m,false)}
   function editOriginal(o){
-    const {view}=current();openEditor({id:crypto.randomUUID(),type:'text',text:o.text,x:o.x,y:o.y,size:o.size/view.width,angle:o.angle,...o.font,fontAscent:o.ascent,color:'#253d37',originalKey:o.key,cover:{x:o.left,y:o.top,w:o.right-o.left,h:o.bottom-o.top,color:o.background}},true);
+    const {view}=current();openEditor({id:crypto.randomUUID(),type:'text',text:o.text,x:o.x,y:o.y,size:o.size/view.width,angle:o.angle,...o.font,fontAscent:o.ascent,color:'#253d37',originalKey:o.key,originalKeys:o.keys,lineWidth:o.w,cover:{x:o.left,y:o.top,w:o.right-o.left,h:o.bottom-o.top,color:o.background}},true);
   }
   function openEditor(m,isNew){
     const s=current(),target=s.page;
-    $('editTitle').textContent=isNew?'Replace PDF text':'Edit text';
-    $('editDescription').textContent=isNew?'This adds a cover and replacement text. Original text remains underneath. Font size and style are matched automatically; unavailable fonts use a similar substitute.':'Your text stays selectable and movable in this browser workspace.';
+    $('editTitle').textContent=isNew?'Replace PDF line':'Edit text';
+    $('editDescription').textContent=isNew?'Edit the entire contiguous line. Longer text is fitted to its original width to prevent overlap. This adds a cover and replacement text. Original text remains underneath. Font size and style are matched automatically; unavailable fonts use a similar substitute.':'Your text stays selectable and movable in this browser workspace.';
     const originalSize=m.size*s.view.width;const displayedSize=String(Number(originalSize.toFixed(4)));
     $('editFontFamily').options[0].textContent='Match original: '+(m.fontLabel||'Arial');$('editFontFamily').value='original';$('editFontStyle').value=(m.fontWeight==='bold'||m.fontWeight==='900'?'bold':'')+(m.fontStyle==='italic'?'italic':'')||'normal';
     $('fontMatchInfo').textContent=m.originalFont?'PDF font: '+m.originalFont+'. Uses an available matching font; embedded-only fonts may differ.':'Font: '+(m.fontLabel||'Arial');
@@ -126,6 +127,8 @@ export function setupTextEditing(api) {
         let background='#ffffff';try{const pixel=ctx.getImageData(Math.max(0,Math.min(cv.width-1,Math.floor(left*cv.width))),Math.max(0,Math.min(cv.height-1,Math.floor(top*cv.height))),1,1).data;background='#'+[...pixel].slice(0,3).map(n=>n.toString(16).padStart(2,'0')).join('')}catch{}
         originals.push({key:`${page.source}:${page.page}:${i}`,text:item.str,x:x/viewport.width,y:y/viewport.height,w:w/viewport.width,h:h/viewport.height,angle:angle*180/Math.PI,size,left,top,right,bottom,background,font:matchedFont,ascent:ascentRatio});
       }
+      const replaced=new Set(page.marks.flatMap(m=>m.originalKeys||[m.originalKey]));
+      originals=groupTextLines(originals.filter(o=>!replaced.has(o.key)),viewport.width,viewport.height);
       drawObjects();if(current().tool==='replace'&&!originals.length)api.toast('No selectable text on this page. Scanned pages need OCR; use Add text instead.');
     }
   };
